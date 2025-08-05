@@ -1,295 +1,340 @@
-import time
-import requests
 import json
-from typing import Dict, List, Any, Optional
+import hashlib
+import os
+from typing import List, Dict, Optional
+
+from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi.responses import JSONResponse
+
+import GETe  # Importa com o novo nome
+from POSTe import SeparacaoMaterialCreator  # Importa com o novo nome
 
 
-class SeparacaoMaterialCreator:
-    def __init__(self):
-        self.base_url = "https://app.way-v.com/api/integration"
-        self.token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJjb21wYW55X2lkIjoiNjYzZDMxYTFlOWRhYzNmNWY0ZDNjZjJlIiwiY3VycmVudF90aW1lIjoxNzQ4OTUzODcyNjgzLCJleHAiOjIwNjQ0ODY2NzJ9.j6zOrJMDKNcCcMMcO99SudriP7KqEDLMJDE2FBlQ6ok'
-        self.headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json"
-        }
-
-        # IDs do template de separação de materiais
-        self.template_id_separacao = "6877fc37e833bf57706a2edf"
-        self.execution_company_id = "685d7c22ebc532b38cc602ce"
-
-        # Mapeamento de IDs de questões (baseado na estrutura real do template)
-        self.identification_questions = {
-            'razao_social': 'e9997ac0cf2a470883bf838b2c5381ac',
-            'nome_fantasia': '56d556a4bb354355a8a65994bee361fe',
-            'cnpj': 'd00366e3b9d64fcba8866854615de85d',
-            'contato_cliente': '68200775db174fa9b78d7596f84bf952',
-            'cargo_funcao': 'd902b4d597a14d18b7cb79573b0b4016',
-            'telefone': '129497cacaec4d3aaba284c72ca72534',
-            'email_cliente': '3ef550c6232940509338ebe1c8207148',
-            'responsavel_separacao': '38f14658c34641288c64f9335e572fba',
-            'assinatura_responsavel': 'ff8547ea42b34836973f7056a8e98c04',
-            'necessita_compra': 'c6c21ebeaf8a490daf61fe92532e0152'
-        }
-
-        # IDs para o subformulário de materiais
-        self.question_id_subform_materiais = None  # Adicionar ID real do subform de materiais
-        self.sub_question_mapping_materiais = {
-            'codigo_material': None,  # ID para o código/descrição do material (ex: ADAPTADOR PVC 1/2)
-            'unidade': None,  # ID para unidade (ex: Unid.)
-            'quantidade': None,  # ID para quantidade solicitada
-            'valor_unitario': None,  # ID para valor unitário (pode usar o valor_compra como referência)
-            'valor_total': None,  # ID para valor total (quantidade * valor_unitario)
-            'observacoes': None,  # ID para observações
-            # Adicionar outros campos conforme necessário no formulário de separação
-        }
-
-    def _send_request(self, payload: Dict, batch_num: int) -> bool:
-        """Envia requisição para a API"""
-        try:
-            response = requests.post(
-                f"{self.base_url}/subchecklists",
-                headers=self.headers,
-                json=payload,
-                timeout=90
-            )
-
-            if response.status_code not in [200, 201]:
-                print(f"❌ ERRO no lote {batch_num}: Status {response.status_code}")
-                print(f"Resposta: {response.text}")
-                return False
-            else:
-                print(f"✅ Lote {batch_num} enviado com sucesso.")
-                return True
-
-        except requests.exceptions.RequestException as e:
-            print(f"❌ ERRO DE CONEXÃO no lote {batch_num}: {e}")
-            return False
-
-    def criar_formulario_separacao(self, identificacao: Dict[str, str],
-                                   assignee_id: str = None,
-                                   creator_id: str = None) -> Optional[str]:
-        """Cria o formulário principal de separação de materiais"""
-        checklist_data = {
-            "checklist": {
-                "template_id": self.template_id_separacao,
-                "execution_company_id": self.execution_company_id,
-                "assignee_id": assignee_id,
-                "creator_id": creator_id,
-                "status_info": {
-                    "new_execution_status": "pending"
-                },
-                "questions": []
-            }
-        }
-
-        # Adiciona campos de identificação
-        for campo, question_id in self.identification_questions.items():
-            valor = identificacao.get(campo)
-            if valor and question_id:
-                checklist_data["checklist"]["questions"].append({
-                    "id": question_id,
-                    "sub_questions": [{"id": "1", "value": valor}]
-                })
-
-        print(f"📝 Criando formulário de separação de materiais...")
-
-        try:
-            response = requests.post(
-                f"{self.base_url}/checklists",
-                headers=self.headers,
-                json=checklist_data
-            )
-
-            if response.status_code not in [200, 201]:
-                print(f"❌ Erro ao criar formulário: {response.status_code}")
-                print(f"Resposta: {response.text}")
-                return None
-            else:
-                checklist_id = response.json()["_id"]["$oid"]
-                print(f"✅ Formulário criado com ID: {checklist_id}")
-                return checklist_id
-
-        except Exception as e:
-            print(f"❌ Erro ao criar formulário: {e}")
-            return None
-
-    def popular_materiais_no_formulario(self, form_id: str, materiais: List[Dict]):
-        """Popula o formulário com os materiais em lotes"""
-        if not materiais:
-            print("ℹ️ Nenhum material para adicionar ao formulário.")
-            return
-
-        if not self.question_id_subform_materiais:
-            print("❌ ID do subformulário de materiais não configurado.")
-            return
-
-        print(f"📦 Preparando para popular formulário ID: {form_id} com {len(materiais)} materiais...")
-
-        # Prepara os subchecklists
-        sub_checklists_para_adicionar = []
-
-        for material in materiais:
-            sub_checklist_questions = []
-
-            # Mapeia os campos do material para as questões do subformulário
-            # Usa o código_material como descrição principal
-            if 'codigo_material' in material and self.sub_question_mapping_materiais.get('codigo_material'):
-                sub_checklist_questions.append({
-                    "question_id": self.sub_question_mapping_materiais['codigo_material'],
-                    "value": str(material.get('codigo_material', ""))
-                })
-
-            # Adiciona unidade
-            if 'unidade' in material and self.sub_question_mapping_materiais.get('unidade'):
-                sub_checklist_questions.append({
-                    "question_id": self.sub_question_mapping_materiais['unidade'],
-                    "value": str(material.get('unidade', ""))
-                })
-
-            # Adiciona quantidade (se existir no formulário de separação)
-            if self.sub_question_mapping_materiais.get('quantidade'):
-                quantidade = material.get('quantidade', '1')  # Default 1 se não especificado
-                sub_checklist_questions.append({
-                    "question_id": self.sub_question_mapping_materiais['quantidade'],
-                    "value": str(quantidade)
-                })
-
-            # Adiciona valor unitário (usando valor_compra do cadastro)
-            if 'valor_compra' in material and self.sub_question_mapping_materiais.get('valor_unitario'):
-                sub_checklist_questions.append({
-                    "question_id": self.sub_question_mapping_materiais['valor_unitario'],
-                    "value": str(material.get('valor_compra', ""))
-                })
-
-            # Calcula e adiciona valor total se necessário
-            if self.sub_question_mapping_materiais.get('valor_total'):
-                try:
-                    quantidade = float(material.get('quantidade', 1))
-                    valor_unit = float(material.get('valor_compra', 0))
-                    valor_total = quantidade * valor_unit
-                    sub_checklist_questions.append({
-                        "question_id": self.sub_question_mapping_materiais['valor_total'],
-                        "value": f"{valor_total:.2f}"
-                    })
-                except (ValueError, TypeError):
-                    pass
-
-            if sub_checklist_questions:
-                sub_checklists_para_adicionar.append({
-                    "id": self.question_id_subform_materiais,
-                    "sub_checklist_questions": sub_checklist_questions
-                })
-
-        if not sub_checklists_para_adicionar:
-            print("⚠️ Nenhum subchecklist foi preparado.")
-            return
-
-        # Envia em lotes
-        batch_size = 50  # Tamanho menor para materiais que podem ter mais campos
-        payloads = [
-            {
-                "checklist_id": form_id,
-                "sub_checklists": sub_checklists_para_adicionar[i:i + batch_size]
-            }
-            for i in range(0, len(sub_checklists_para_adicionar), batch_size)
-        ]
-
-        total_lotes = len(payloads)
-        print(f"📤 Total de {len(sub_checklists_para_adicionar)} materiais a serem enviados em {total_lotes} lotes.")
-
-        success_count = 0
-        for i, payload in enumerate(payloads):
-            batch_num = i + 1
-            print(f"➡️ Enviando lote {batch_num}/{total_lotes}...")
-
-            success = self._send_request(payload, batch_num)
-
-            if success:
-                success_count += 1
-            else:
-                print(f"🛑 Envio interrompido devido a erro no lote {batch_num}.")
-                break
-
-            # Pequena pausa entre lotes para não sobrecarregar a API
-            if batch_num < total_lotes:
-                time.sleep(0.5)
-
-        if success_count == total_lotes:
-            print("🎉 Formulário populado com sucesso! Todos os lotes foram enviados.")
-        else:
-            print(f"⚠️ Processo concluído com falhas. {success_count} de {total_lotes} lotes enviados.")
-
-    def criar_separacao_completa(self, identificacao: Dict[str, str],
-                                 materiais: List[Dict],
-                                 assignee_id: str = None,
-                                 creator_id: str = None) -> Optional[str]:
-        """Cria o formulário de separação e popula com materiais"""
-        # Cria o formulário principal
-        form_id = self.criar_formulario_separacao(
-            identificacao=identificacao,
-            assignee_id=assignee_id,
-            creator_id=creator_id
-        )
-
-        if not form_id:
-            return None
-
-        if not materiais:
-            print("ℹ️ Formulário criado sem materiais.")
-            return form_id
-
-        # Aguarda um momento antes de adicionar os materiais
-        print("⏳ Aguardando 2 segundos antes de adicionar materiais...")
-        time.sleep(2)
-
-        # Popula com os materiais
-        self.popular_materiais_no_formulario(form_id, materiais)
-
-        return form_id
-
-    def atualizar_mapeamento_campos(self, template_data: dict):
-        """
-        Método auxiliar para atualizar o mapeamento de campos baseado
-        na estrutura real do template. Deve ser chamado após análise
-        do template real.
-        """
-        print("🔍 Analisando estrutura do template para mapeamento de campos...")
-
-        # Aqui você pode implementar a lógica para extrair automaticamente
-        # os IDs das questões do template
-        # Por enquanto, deixamos como placeholder para ser preenchido manualmente
-
-        print("ℹ️ Mapeamento de campos deve ser atualizado manualmente com os IDs reais.")
+def _extract_exec_id(payload: dict) -> Optional[str]:
+    """Extrai o ID da empresa de execução do payload do webhook"""
+    try:
+        return payload.get("execution_company_id", {}).get("$oid")
+    except (AttributeError, TypeError):
+        return None
 
 
-if __name__ == "__main__":
-    # Teste do módulo
-    creator = SeparacaoMaterialCreator()
-
-    # Dados de teste
-    identificacao_teste = {
-        'solicitante': 'João Silva',
-        'data_solicitacao': '2025-01-29',
-        'obra': 'Obra ABC',
-        'responsavel': 'Maria Santos'
+def extrair_informacoes_planejamento_material(data: dict) -> dict:
+    """
+    Extrai e formata as informações do payload do webhook para o novo fluxo de materiais
+    """
+    info = {
+        # Identificação da empresa/cliente
+        "razao_social": None,
+        "nome_fantasia": None,
+        "cnpj": None,
+        "contato_cliente": None,
+        "cargo_funcao": None,
+        "telefone": None,
+        "email_cliente": None,
+        "responsavel_separacao": None,
+        "necessita_compra": False,
+        
+        # Flags de controle
+        "gerar_lista_materiais": False,  # Equivalente ao antigo "gerar_itens_auto"
+        "gerar_separacao": False,  # Equivalente ao antigo "gerar_checklist_manual"
+        
+        # Filtros e materiais
+        "subcategoria_servico": None,
+        "materiais_selecionados": [],
+        
+        # Metadados
+        "user_id": None,
+        "form_id": None
     }
+    
+    # Extrai user_id
+    info['user_id'] = data.get('user_id', {}).get('$oid')
+    info['form_id'] = data.get('_id', {}).get('$oid')
+    
+    # Processa as questões do template
+    for question in data.get("template_questions", []):
+        q_text = question.get("question")
+        q_value = question.get("value")
+        
+        # Mapeamento dos campos de identificação
+        if "razão social" in q_text.lower():
+            info["razao_social"] = q_value
+        elif "nome fantasia" in q_text.lower():
+            info["nome_fantasia"] = q_value
+        elif "cnpj" in q_text.lower():
+            info["cnpj"] = q_value
+        elif "contato" in q_text.lower() and "cliente" in q_text.lower():
+            info["contato_cliente"] = q_value
+        elif "cargo" in q_text.lower() or "função" in q_text.lower():
+            info["cargo_funcao"] = q_value
+        elif "telefone" in q_text.lower():
+            info["telefone"] = q_value
+        elif "e-mail" in q_text.lower() or "email" in q_text.lower():
+            info["email_cliente"] = q_value
+        elif "responsável" in q_text.lower() and "separação" in q_text.lower():
+            info["responsavel_separacao"] = q_value
+        elif "necessita compra" in q_text.lower():
+            info["necessita_compra"] = q_value == "true"
+        
+        # Flags de controle
+        elif "gerar lista" in q_text.lower() or "buscar materiais" in q_text.lower():
+            info["gerar_lista_materiais"] = q_value == "true"
+        elif "gerar separação" in q_text.lower() or "criar formulário" in q_text.lower():
+            info["gerar_separacao"] = q_value == "true"
+        
+        # Subcategoria para filtro
+        elif "subcategoria" in q_text.lower() and "serviço" in q_text.lower():
+            info["subcategoria_servico"] = q_value
+        
+        # Processamento do subformulário de materiais
+        elif "materiais" in q_text.lower() and "sub_checklists" in question:
+            for sub_entry in question.get("sub_checklists", []):
+                material_info = {}
+                
+                for sub_col in sub_entry.get('sub_checklist_questions', []):
+                    col_question = sub_col.get('question', '').lower()
+                    col_value = sub_col.get('value')
+                    
+                    if 'código' in col_question:
+                        material_info['codigo'] = col_value
+                    elif 'descrição' in col_question or 'descricao' in col_question:
+                        material_info['descricao'] = col_value
+                    elif 'quantidade' in col_question:
+                        material_info['quantidade'] = col_value
+                    elif 'unidade' in col_question:
+                        material_info['unidade'] = col_value
+                    elif 'selecionado' in col_question or 'selecionar' in col_question:
+                        material_info['selecionado'] = col_value == 'true'
+                
+                # Adiciona apenas materiais selecionados
+                if material_info.get('selecionado', False) and material_info.get('codigo'):
+                    info['materiais_selecionados'].append(material_info)
+    
+    return info
 
-    materiais_teste = [
-        {
-            'codigo': 'MAT001',
-            'descricao': 'Cabo elétrico 2.5mm',
-            'quantidade': '100',
-            'unidade': 'metros',
-            'observacoes': 'Para instalação elétrica'
-        },
-        {
-            'codigo': 'MAT002',
-            'descricao': 'Tomada 20A',
-            'quantidade': '50',
-            'unidade': 'unidades',
-            'observacoes': 'Padrão brasileiro'
+
+def handle_webhook_logic(payload: dict):
+    """Função principal que processa o webhook em background"""
+    info = extrair_informacoes_planejamento_material(payload)
+    total_materiais_selecionados = len(info['materiais_selecionados'])
+    form_id = info['form_id']
+    exec_id = _extract_exec_id(payload) or "685d7c22ebc532b38cc602ce"
+    user_id = info.get('user_id')
+    
+    print("\n--- INICIANDO PROCESSAMENTO DE MATERIAIS EM BACKGROUND ---")
+    print(f"Formulário ID: {form_id} | Empresa ID: {exec_id}")
+    print(f"Flag 'Gerar Lista': {info['gerar_lista_materiais']} | Flag 'Gerar Separação': {info['gerar_separacao']}")
+    print(f"Materiais Selecionados: {total_materiais_selecionados}")
+    print(f"Subcategoria Filtro: {info['subcategoria_servico']}")
+    
+    # CENÁRIO 1: Popular lista de materiais baseado em subcategoria
+    if info['gerar_lista_materiais'] and total_materiais_selecionados == 0:
+        print("\n▶️ CENÁRIO 1: Buscando e populando lista de materiais...")
+        
+        if not info['subcategoria_servico']:
+            print("❌ Falha no Cenário 1: Subcategoria de serviço não especificada.")
+            return
+        
+        if not form_id:
+            print("❌ Falha no Cenário 1: ID do formulário não encontrado.")
+            return
+        
+        # Busca materiais da subcategoria especificada
+        materiais = GETe.buscar_materiais_com_subcategoria(
+            subcategoria_servico=info['subcategoria_servico'],
+            exec_id=exec_id
+        )
+        
+        if not materiais:
+            print(f"⚠️ Nenhum material encontrado para a subcategoria '{info['subcategoria_servico']}'.")
+            return
+        
+        print(f"📦 Encontrados {len(materiais)} materiais para a subcategoria '{info['subcategoria_servico']}'.")
+        
+        # Aqui você precisaria implementar a lógica para popular o formulário atual
+        # com a lista de materiais encontrados (similar ao popular_formulario_planejamento)
+        # Por agora, apenas logamos o resultado
+        
+        print("✅ Processamento do Cenário 1 concluído.")
+        print("⚠️ NOTA: Implementar lógica para popular formulário com lista de materiais.")
+        return
+    
+    # CENÁRIO 2: Criar formulário de separação com materiais selecionados
+    elif info['gerar_separacao'] and total_materiais_selecionados > 0:
+        print("\n▶️ CENÁRIO 2: Gerando formulário de separação de materiais...")
+        
+        # Prepara dados de identificação
+        identificacao = {
+            'razao_social': info.get('razao_social'),
+            'nome_fantasia': info.get('nome_fantasia'),
+            'cnpj': info.get('cnpj'),
+            'contato_cliente': info.get('contato_cliente'),
+            'cargo_funcao': info.get('cargo_funcao'),
+            'telefone': info.get('telefone'),
+            'email_cliente': info.get('email_cliente'),
+            'responsavel_separacao': info.get('responsavel_separacao'),
+            'necessita_compra': info.get('necessita_compra')
         }
-    ]
+        
+        # Remove campos None
+        identificacao = {k: v for k, v in identificacao.items() if v is not None}
+        
+        # Se temos códigos de materiais mas não os detalhes completos,
+        # podemos buscar os detalhes no cache
+        materiais_completos = []
+        
+        # Para o cenário 2, vamos usar os dados do cache de materiais
+        # que já foram carregados no cenário 1
+        print("🔍 Preparando materiais selecionados para separação...")
+        
+        # Busca informações completas dos materiais selecionados
+        buscador = GETe.MaterialBuscador(execution_company_id=exec_id)
+        
+        # Se temos o cache, busca os detalhes
+        if os.path.exists(buscador.arquivo_cache):
+            try:
+                with open(buscador.arquivo_cache, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                
+                materiais_cache = cache_data.get('dados', [])
+                
+                # Para cada material selecionado, busca seus detalhes completos
+                for mat_selecionado in info['materiais_selecionados']:
+                    # Busca pelo código ou outro identificador
+                    for mat_completo in materiais_cache:
+                        mat_info = buscador.extrair_informacoes_material(mat_completo)
+                        
+                        # Verifica se é o mesmo material (por código ou descrição)
+                        if (mat_info.get('codigo_material') == mat_selecionado.get('codigo') or
+                            mat_info.get('codigo_material') == mat_selecionado.get('descricao')):
+                            
+                            # Adiciona a quantidade selecionada
+                            mat_info['quantidade'] = mat_selecionado.get('quantidade', '1')
+                            materiais_completos.append(mat_info)
+                            break
+                
+            except Exception as e:
+                print(f"⚠️ Erro ao buscar detalhes dos materiais: {e}")
+                # Usa os dados que já temos
+                materiais_completos = info['materiais_selecionados']
+        else:
+            print("⚠️ Cache de materiais não encontrado. Usando dados parciais.")
+            materiais_completos = info['materiais_selecionados']
+        
+        # Cria o formulário de separação
+        creator = POSTe.SeparacaoMaterialCreator()
+        
+        # IMPORTANTE: Os IDs de mapeamento precisam ser configurados primeiro
+        print("⚠️ ATENÇÃO: Os IDs de mapeamento no SeparacaoMaterialCreator precisam ser configurados!")
+        
+        separacao_id = creator.criar_separacao_completa(
+            identificacao=identificacao,
+            materiais=materiais_completos,
+            assignee_id=user_id,
+            creator_id=user_id
+        )
+        
+        if separacao_id:
+            print(f"✅ Processamento do Cenário 2 concluído. Separação ID: {separacao_id}")
+        else:
+            print("❌ Falha no Cenário 2: Erro na criação do formulário de separação.")
+        
+        return
+    
+    else:
+        print("\n⏹️ Nenhuma condição atendida no processamento em background.")
+        return
 
-    print("⚠️ ATENÇÃO: Este é apenas um teste de estrutura.")
-    print("Os IDs de mapeamento precisam ser configurados com os valores reais do template.")
+
+def criar_app_fastapi():
+    """Cria e configura a aplicação FastAPI com Background Tasks e cache de IDs"""
+    app = FastAPI(title="Webhook Processor - Materiais", version="1.0.0")
+    
+    WEBHOOK_ID_CACHE_FILE = 'webhook_cache_materials.json'
+    MAX_CACHE_SIZE = 200
+
+    def ler_cache_de_ids() -> List[str]:
+        """Lê a lista de IDs de webhooks processados do arquivo de cache"""
+        try:
+            with open(WEBHOOK_ID_CACHE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return []
+
+    def salvar_cache_de_ids(ids: List[str]):
+        """Salva a lista atualizada de IDs no arquivo de cache"""
+        try:
+            with open(WEBHOOK_ID_CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(ids, f)
+        except IOError as e:
+            print(f"❌ Erro ao salvar o cache de webhooks: {e}")
+
+    @app.get("/")
+    async def root():
+        """Endpoint raiz para verificar se o servidor está rodando"""
+        return {
+            "status": "online",
+            "service": "Webhook Processor - Materiais",
+            "endpoints": ["/webhook", "/health"]
+        }
+
+    @app.get("/health")
+    async def health_check():
+        """Endpoint de health check"""
+        return {"status": "healthy", "timestamp": json.dumps(str(hash(str(time.time()))))}
+
+    @app.post("/webhook")
+    async def webhook_endpoint(request: Request, background_tasks: BackgroundTasks):
+        """Endpoint principal que recebe os webhooks"""
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return JSONResponse(
+                status_code=400, 
+                content={"status": "erro", "motivo": "Payload inválido - JSON mal formado"}
+            )
+
+        # Gera ID único para o webhook
+        try:
+            form_id = body.get('_id', {}).get('$oid')
+            updated_at = body.get('updated_at')
+            
+            if not form_id or not updated_at:
+                raise KeyError("IDs não encontrados no formato esperado")
+            
+            current_id = hashlib.md5(f"{form_id}-{updated_at}".encode()).hexdigest()
+        except (KeyError, AttributeError):
+            # Fallback: usa hash do payload completo
+            current_id = hashlib.md5(json.dumps(body, sort_keys=True).encode()).hexdigest()
+        
+        # Verifica duplicação
+        cached_ids = ler_cache_de_ids()
+        if current_id in cached_ids:
+            print(f"🔄 Webhook duplicado detectado (ID: {current_id[:8]}). Ignorando.")
+            return JSONResponse(
+                status_code=200, 
+                content={"status": "ignorado", "reason": "duplicate", "id": current_id[:8]}
+            )
+        
+        # Adiciona ao cache
+        cached_ids.append(current_id)
+        salvar_cache_de_ids(cached_ids[-MAX_CACHE_SIZE:])
+        
+        # Agenda processamento em background
+        background_tasks.add_task(handle_webhook_logic, body)
+        
+        print(f"✅ Webhook (ID: {current_id[:8]}) aceito. Agendado para processamento.")
+        return JSONResponse(
+            status_code=202, 
+            content={
+                "status": "aceito", 
+                "detail": "Webhook recebido e agendado para processamento",
+                "id": current_id[:8]
+            }
+        )
+    
+    return app
+
+
+# Importação necessária para o health check
+import time

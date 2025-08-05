@@ -166,6 +166,9 @@ def criar_app_fastapi():
     async def webhook_endpoint(request: Request, background_tasks: BackgroundTasks):
         try:
             body = await request.json()
+            print("\n=== WEBHOOK PAYLOAD COMPLETO ===")
+            print(json.dumps(body, indent=2, ensure_ascii=False))
+            print("=== FIM DO PAYLOAD ===\n")
         except json.JSONDecodeError:
             return JSONResponse(status_code=400, content={"status": "erro", "motivo": "Payload inválido."})
 

@@ -12,7 +12,7 @@ class FormulariosBuscador:
         self.token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJjb21wYW55X2lkIjoiNjYzZDMxYTFlOWRhYzNmNWY0ZDNjZjJlIiwiY3VycmVudF90aW1lIjoxNzQ4OTUzODcyNjgzLCJleHAiOjIwNjQ0ODY2NzJ9.j6zOrJMDKNcCcMMcO99SudriP7KqEDLMJDE2FBlQ6ok'
         self.params = {
             "execution_company_id": execution_company_id,
-            "template_id": '67f6ae4d6ba4f07ba32a1ea8'
+            "template_id": '68672e90de1e5a11771d2224'
         }
         self.headers = {
             "Authorization": f"Bearer {self.token}",
@@ -107,7 +107,7 @@ def _buscar_clausulas(exec_id: str) -> List[str]:
         cc = POST.ChecklistCreator()
         url = f"{cc.base_url.rstrip('/')}/checklists"
         resp = requests.get(url, headers=cc.headers, params={
-            "template_id": "67f6ad27bfce31f9c1926b57", # Template de Cadastro de Itens
+            "template_id": "68672e90de1e5a11771d2224", # Template de Cadastro de Itens
             "execution_company_id": exec_id
         }, timeout=30)
         resp.raise_for_status()
@@ -128,7 +128,7 @@ def _buscar_clausulas(exec_id: str) -> List[str]:
         return []
 
 if __name__ == "__main__":
-    exec_id = "6800f0468065037501c538d2"  # Substitua pelo ID real
+    exec_id = "685d7c22ebc532b38cc602ce"  # Substitua pelo ID real
     buscador = FormulariosBuscador(execution_company_id=exec_id)
     if buscador.carregar_e_salvar_formularios():
         clausulas = _buscar_clausulas(exec_id)
