@@ -116,6 +116,8 @@ def extrair_informacoes_abertura_projetos(data: dict) -> dict:
                         material_info["quantidade"] = sub_q_value
                     elif "Valor Unit" in sub_q_text:
                         material_info["valor_unitario"] = sub_q_value
+                    elif "Valor Unit." in sub_q_text:
+                        material_info["valor_unitario"] = sub_q_value
                     elif "Valor de Venda" in sub_q_text:
                         material_info["valor_venda"] = sub_q_value
                     elif "Total de Venda" in sub_q_text:
@@ -205,6 +207,10 @@ def extrair_informacoes_separacao_materiais(data: dict) -> dict:
 
                     if sub_q_text == "Material":
                         material_info["material"] = sub_q_value
+                    elif sub_q_text == "Valor Unitário":
+                        material_info["valor_unitario"] = sub_q_value
+                    elif sub_q_text == "Valor Unit.":
+                        material_info["valor_unitario"] = sub_q_value
                     elif sub_q_text == "Quantidade":
                         material_info["quantidade"] = sub_q_value
                     elif sub_q_text == "Separado":
@@ -235,6 +241,7 @@ def handle_webhook_logic(payload: dict):
 
     # Webhooks de Materiais
     if template_name in ["Abertura de Projetos", "Separação de Materiais"]:
+        print(template_name)
         print("📦 Tipo detectado: Sistema de Materiais")
         return handle_webhook_materiais_logic(payload)
 
@@ -310,11 +317,12 @@ def handle_webhook_materiais_logic(payload: dict):
                     print(f"\nMateriais do Serviço {servico_num}:")
                     for mat in materiais:
                         print(
-                            f"  - {mat.get('material')} | Qtd: {mat.get('quantidade')} | Valor: {mat.get('valor_venda')}")
+                            f"  - {mat.get('material')} | Qtd: {mat.get('quantidade')} | Valor: {mat.get('valor_unitario')}")
                         # Adiciona à lista consolidada com formato para separação
                         todos_materiais.append({
                             "material": mat.get('material'),
-                            "quantidade": mat.get('quantidade')
+                            "quantidade": mat.get('quantidade'),
+                            "valor_unitario": mat.get('valor_unitario'),
                         })
 
             # Cria o checklist de Separação de Materiais
@@ -389,7 +397,7 @@ def handle_webhook_materiais_logic(payload: dict):
 
             # Lista os materiais que serão incluídos na ordem de compra
             for mat in materiais_para_comprar:
-                print(f"  - {mat['material']} | Quantidade: {mat['quantidade']}")
+                print(f"  - {mat['material']} | Quantidade: {mat['quantidade']} | Valor Unitário: {mat.get('valor_unitario', 'N/A')}")
 
             # Prepara dados de identificação do cliente
             identificacao = {
@@ -411,7 +419,7 @@ def handle_webhook_materiais_logic(payload: dict):
                     "quantidade": mat.get('quantidade', '1'),
                     # Se houver um sistema de preços, pode buscar aqui
                     # Por enquanto, deixa vazio para ser preenchido manualmente
-                    "valor_compra": None
+                    "valor_unitario": mat.get('valor_unitario', ''),
                 }
                 materiais_ordem_compra.append(material_dict)
 

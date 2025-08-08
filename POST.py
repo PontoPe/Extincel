@@ -27,7 +27,8 @@ class ChecklistCreator:
             'quantidade': 'fda6238d6c1d4bc79586bd7604d76ccf',
             'status_produto': 'ec608e7eac574de788e8a6f3794b3bb7',
             'separado': 'c6930a0e081242a6a3366f4aa102b106',
-            'imagem': 'cf08bcae0f9d443f994b9558e73825bd'
+            'imagem': 'cf08bcae0f9d443f994b9558e73825bd',
+            'valor_unitario': '33e189ac9bee4b5b9a8f443ecc62ac3a'
         }
 
         self.sub_question_mapping_materiais = {
@@ -167,6 +168,13 @@ class ChecklistCreator:
                 "question_id": self.sub_question_mapping_separacao['quantidade'],
                 "value": str(quantidade)
             })
+
+            valor = material.get('valor_unitario')
+            if valor:
+                sub_checklist_questions.append({
+                    "question_id": self.sub_question_mapping_separacao['valor_unitario'],
+                    "value": str(valor)
+                })
 
             if sub_checklist_questions:
                 sub_checklists.append({
@@ -332,10 +340,11 @@ class ChecklistCreator:
             })
 
             # Valor de compra (opcional)
-            if material.get('valor_compra'):
-                sub_checklist_questions.append({
+            valor_unit = material.get('valor_unitario')
+            valor = int(material.get('quantidade')) * float(valor_unit) if valor_unit else material.get('valor_compra')
+            sub_checklist_questions.append({
                     "question_id": self.sub_question_mapping_ordem_compra['valor_compra'],
-                    "value": str(material['valor_compra'])
+                    "value": valor
                 })
 
             if sub_checklist_questions:
