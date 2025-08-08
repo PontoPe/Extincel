@@ -57,6 +57,41 @@ class ChecklistCreator:
             'telefone': '129497cacaec4d3aaba284c72ca72534'
         }
 
+        self.template_id_ordem_compra = "6876adf1919af1f97652c2d2"  # Você precisa confirmar este ID
+
+        # Mapeamento das perguntas de identificação para Ordem de Compra (mesmas da separação)
+        self.identification_question_mapping_ordem_compra = {
+            'nome_fantasia': '56d556a4bb354355a8a65994bee361fe',
+            'cnpj': 'd00366e3b9d64fcba8866854615de85d',
+            'contato_cliente': '68200775db174fa9b78d7596f84bf952',
+            'email_cliente': '3ef550c6232940509338ebe1c8207148',
+            'razao_social': 'e9997ac0cf2a470883bf838b2c5381ac',
+            'cargo_funcao': 'd902b4d597a14d18b7cb79573b0b4016',
+            'telefone': '129497cacaec4d3aaba284c72ca72534'
+        }
+
+        # Mapeamento das perguntas da seção Recebimento
+        self.recebimento_question_mapping = {
+            'data_recebimento': '7dd07c8495144180a629c1e225812c8e',
+            'nota_fiscal': 'ccf775368f654635977f2ff5927ccd49'
+        }
+
+        # Mapeamento das perguntas de controle
+        self.controle_question_mapping = {
+            'bloqueia_questoes': 'ea27f7753abf46938b14bf1313bf6175',
+            'aprovacao_compra': 'e2d803b9e8b24ba3a1f5e132cfb91f40'
+        }
+
+        # ID da pergunta do subformulário de materiais para compra
+        self.question_id_materiais_compra = "7801b46e101e48f49c94d869c1867c14"
+
+        # Mapeamento dos subcampos de materiais na Ordem de Compra
+        self.sub_question_mapping_ordem_compra = {
+            'material': '10b58ea788f64e069ca1266af4848f36',
+            'quantidade': 'e857556a367645f0ab0e19f22012b870',
+            'valor_compra': 'a5aa0c14931e4944a7dfa297d5b7b543'
+        }
+
     def _send_request(self, payload: Dict, batch_num: int) -> bool:
         try:
             response = requests.post(f"{self.base_url}/subchecklists", headers=self.headers, json=payload, timeout=90)
@@ -214,3 +249,176 @@ class ChecklistCreator:
             assignee_id=assignee_id,
             creator_id=creator_id
         )
+
+    def criar_checklist_ordem_compra(self, identificacao: Dict[str, str], execution_company_id: str,
+                                     assignee_id: str = None, creator_id: str = None,
+                                     data_recebimento: str = None):
+        """
+        Cria o checklist principal de Ordem de Compra.
+        """
+        checklist_data = {
+            "checklist": {
+                "template_id": self.template_id_ordem_compra,
+                "execution_company_id": execution_company_id,
+                "assignee_id": assignee_id,
+                "creator_id": creator_id,
+                "status_info": {
+                    "new_execution_status": "pending"
+                },
+                "questions": []
+            }
+        }
+
+        # Adiciona campos de identificação
+        for campo, question_id in self.identification_question_mapping_ordem_compra.items():
+            valor = identificacao.get(campo)
+            if valor:
+                checklist_data["checklist"]["questions"].append(
+                    {"id": question_id, "sub_questions": [{"id": "1", "value": valor}]}
+                )
+
+        # Adiciona campos de recebimento (inicialmente vazios ou com valores padrão)
+        if data_recebimento:
+            checklist_data["checklist"]["questions"].append(
+                {"id": self.recebimento_question_mapping['data_recebimento'],
+                 "sub_questions": [{"id": "1", "value": data_recebimento}]}
+            )
+
+        print(f"📝 Criando Ordem de Compra para a empresa {execution_company_id}...")
+        response = requests.post(f"{self.base_url}/checklists", headers=self.headers, json=checklist_data)
+
+        if response.status_code not in [200, 201]:
+            print(f"❌ Erro ao criar ordem de compra: {response.status_code}\n{response.text}")
+            return None
+        else:
+            checklist_id = response.json()["_id"]["$oid"]
+            print(f"✅ Ordem de Compra criada com id: {checklist_id}")
+            return checklist_id
+
+    def adicionar_materiais_ordem_compra(self, checklist_id: str, materiais: List[Dict[str, Any]]):
+        """
+        Adiciona materiais à Ordem de Compra.
+
+        Args:
+            checklist_id: ID do checklist de ordem de compra
+            materiais: Lista de dicionários com 'material', 'quantidade' e opcionalmente 'valor_compra'
+        """
+        if not materiais:
+            print("⚠️ Nenhum material para adicionar à ordem de compra.")
+            return
+
+        print(f"📋 Adicionando {len(materiais)} materiais à ordem de compra...")
+
+        sub_checklists = []
+
+        for material in materiais:
+            # Pula materiais sem nome
+            if not material.get('material'):
+                continue
+
+            sub_checklist_questions = []
+
+            # Material (obrigatório)
+            sub_checklist_questions.append({
+                "question_id": self.sub_question_mapping_ordem_compra['material'],
+                "value": str(material['material'])
+            })
+
+            # Quantidade (usa '1' como padrão se não houver)
+            quantidade = material.get('quantidade', '1')
+            sub_checklist_questions.append({
+                "question_id": self.sub_question_mapping_ordem_compra['quantidade'],
+                "value": str(quantidade)
+            })
+
+            # Valor de compra (opcional)
+            if material.get('valor_compra'):
+                sub_checklist_questions.append({
+                    "question_id": self.sub_question_mapping_ordem_compra['valor_compra'],
+                    "value": str(material['valor_compra'])
+                })
+
+            if sub_checklist_questions:
+                sub_checklists.append({
+                    "id": self.question_id_materiais_compra,
+                    "sub_checklist_questions": sub_checklist_questions
+                })
+
+        # Se não houver subchecklists válidos, retorna
+        if not sub_checklists:
+            print("⚠️ Nenhum material válido para adicionar.")
+            return
+
+        # Envia em lotes
+        batch_size = 50
+        total_enviados = 0
+
+        for i in range(0, len(sub_checklists), batch_size):
+            batch = sub_checklists[i:i + batch_size]
+            payload = {
+                "checklist_id": checklist_id,
+                "sub_checklists": batch
+            }
+
+            batch_num = (i // batch_size) + 1
+            total_batches = math.ceil(len(sub_checklists) / batch_size)
+
+            print(f"📦 Enviando lote {batch_num}/{total_batches} com {len(batch)} materiais...")
+
+            try:
+                response = requests.post(
+                    f"{self.base_url}/subchecklists",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=90
+                )
+
+                if response.status_code in [200, 201]:
+                    total_enviados += len(batch)
+                    print(f"✅ Lote {batch_num} enviado com sucesso.")
+                else:
+                    print(f"❌ Erro ao adicionar materiais (lote {batch_num}): {response.status_code}")
+                    print(f"Resposta: {response.text}")
+
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Erro de conexão ao enviar lote {batch_num}: {e}")
+
+        print(f"\n📊 Total de materiais enviados: {total_enviados}/{len(sub_checklists)}")
+
+    def criar_ordem_compra_completa(self, identificacao: Dict[str, str],
+                                    execution_company_id: str,
+                                    materiais_compra: List[Dict],
+                                    assignee_id: str = None,
+                                    creator_id: str = None):
+        """
+        Cria uma Ordem de Compra completa com todos os materiais.
+
+        Args:
+            identificacao: Dados do cliente
+            execution_company_id: ID da empresa
+            materiais_compra: Lista de materiais para comprar
+            assignee_id: ID do responsável
+            creator_id: ID do criador
+            valor_total: Valor total da compra (opcional)
+
+        Returns:
+            ID do checklist criado ou None em caso de erro
+        """
+        # Cria o checklist principal
+        checklist_id = self.criar_checklist_ordem_compra(
+            identificacao=identificacao,
+            execution_company_id=execution_company_id,
+            assignee_id=assignee_id,
+            creator_id=creator_id
+        )
+
+        if not checklist_id:
+            return None
+
+        # Aguarda antes de adicionar subchecklists
+        if materiais_compra:
+            print("⏳ Aguardando 2 segundos antes de adicionar materiais...")
+            time.sleep(2)
+            self.adicionar_materiais_ordem_compra(checklist_id, materiais_compra)
+
+        return checklist_id

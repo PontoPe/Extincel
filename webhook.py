@@ -9,6 +9,9 @@ from fastapi.responses import JSONResponse
 import GET
 from POST import ChecklistCreator
 
+def get_timestamp():
+    """Return formatted current timestamp for logging"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 def _extract_exec_id(payload: dict) -> str | None:
     """Extrai o ID da empresa de execução do payload do webhook."""
@@ -274,23 +277,19 @@ def handle_webhook_materiais_logic(payload: dict):
     print(f"Formulário ID: {form_id} | Empresa ID: {exec_id}")
 
     if template_name == "Abertura de Projetos":
-        # Lógica para Abertura de Projetos
+        # Lógica para Abertura de Projetos (código existente mantido)
         print(f"Flag 'Gerar Materiais': {info['gerar_materiais']}")
-        if info.get("materiais_servico_1") is None:
-            print("⚠️ Nenhum material encontrado para o Serviço 1.")
-        else:
-            print(f"Materiais do Serviço 1: {len(info['materiais_servico_1'])} encontrados.")
-            materiais_servico_1 = info['materiais_servico_1']
-        if info.get("materiais_servico_2") is None:
-            print("⚠️ Nenhum material encontrado para o Serviço 2.")
-        else:
-            print(f"Materiais do Serviço 2: {len(info['materiais_servico_2'])} encontrados.")
-            materiais_servico_2 = info['materiais_servico_2']
-        if info.get("materiais_servico_3") is None:
-            print("⚠️ Nenhum material encontrado para o Serviço 3.")
-        else:
-            print(f"Materiais do Serviço 3: {len(info['materiais_servico_3'])} encontrados.")
-            materiais_servico_3 = info['materiais_servico_3']
+
+        materiais_servico_1 = info.get('materiais_servico_1', [])
+        materiais_servico_2 = info.get('materiais_servico_2', [])
+        materiais_servico_3 = info.get('materiais_servico_3', [])
+
+        if materiais_servico_1:
+            print(f"Materiais do Serviço 1: {len(materiais_servico_1)} encontrados.")
+        if materiais_servico_2:
+            print(f"Materiais do Serviço 2: {len(materiais_servico_2)} encontrados.")
+        if materiais_servico_3:
+            print(f"Materiais do Serviço 3: {len(materiais_servico_3)} encontrados.")
 
         total_materiais = (len(materiais_servico_1) +
                            len(materiais_servico_2) +
@@ -307,7 +306,7 @@ def handle_webhook_materiais_logic(payload: dict):
 
             for servico_num in [1, 2, 3]:
                 materiais = info[f'materiais_servico_{servico_num}']
-                if materiais is not None and len(materiais) > 0:
+                if materiais:
                     print(f"\nMateriais do Serviço {servico_num}:")
                     for mat in materiais:
                         print(
@@ -357,13 +356,20 @@ def handle_webhook_materiais_logic(payload: dict):
                 print("\n⏹️ Nenhum material encontrado para processar.")
 
     elif template_name == "Separação de Materiais":
-        # Lógica para Separação de Materiais
+        # Lógica para Separação de Materiais com implementação de Ordem de Compra
         print(f"Flag 'Necessita Compra': {info['necessita_compra']}")
         print(f"Responsável: {info['responsavel_separacao']}")
 
         total_materiais = len(info['materiais_separacao'])
         materiais_separados = sum(1 for mat in info['materiais_separacao'] if mat['separado'])
-        materiais_comprar = sum(1 for mat in info['materiais_separacao'] if mat['status_produto'] == 'Item a Comprar')
+
+        # Filtra materiais que precisam ser comprados
+        materiais_para_comprar = [
+            mat for mat in info['materiais_separacao']
+            if mat.get('status_produto') == 'Item a Comprar'
+        ]
+
+        materiais_comprar = len(materiais_para_comprar)
 
         print(f"\nTotal de materiais: {total_materiais}")
         print(f"Materiais separados: {materiais_separados}")
@@ -373,12 +379,68 @@ def handle_webhook_materiais_logic(payload: dict):
             print("\n▶️ Lista de materiais:")
             for mat in info['materiais_separacao']:
                 status = "✅" if mat['separado'] else "❌"
-                print(f"  {status} {mat['material']} | Qtd: {mat['quantidade']} | Status: {mat['status_produto']}")
+                status_produto = mat.get('status_produto', 'N/A')
+                print(f"  {status} {mat['material']} | Qtd: {mat['quantidade']} | Status: {status_produto}")
 
+        # IMPLEMENTAÇÃO DA ORDEM DE COMPRA
         if info['necessita_compra'] and materiais_comprar > 0:
-            print("\n▶️ Gerando lista de compras...")
-            # TODO: Implementar lógica para gerar pedido de compra
-            print("✅ Lista de compras gerada.")
+            print("\n▶️ Gerando Ordem de Compra...")
+            print(f"📋 {materiais_comprar} materiais precisam ser comprados:")
+
+            # Lista os materiais que serão incluídos na ordem de compra
+            for mat in materiais_para_comprar:
+                print(f"  - {mat['material']} | Quantidade: {mat['quantidade']}")
+
+            # Prepara dados de identificação do cliente
+            identificacao = {
+                "nome_fantasia": info.get('nome_fantasia'),
+                "cnpj": info.get('cnpj'),
+                "razao_social": info.get('razao_social'),
+                "contato_cliente": info.get('contato_cliente'),
+                "email_cliente": info.get('email_cliente'),
+                "telefone": info.get('telefone'),
+                "cargo_funcao": info.get('cargo_funcao')
+            }
+
+            # Prepara lista de materiais para a ordem de compra
+            # Aqui você pode adicionar lógica para buscar preços de um catálogo se necessário
+            materiais_ordem_compra = []
+            for mat in materiais_para_comprar:
+                material_dict = {
+                    "material": mat.get('material'),
+                    "quantidade": mat.get('quantidade', '1'),
+                    # Se houver um sistema de preços, pode buscar aqui
+                    # Por enquanto, deixa vazio para ser preenchido manualmente
+                    "valor_compra": None
+                }
+                materiais_ordem_compra.append(material_dict)
+
+            # Cria a ordem de compra
+            if exec_id:
+                creator = ChecklistCreator()
+                ordem_compra_id = creator.criar_ordem_compra_completa(
+                    identificacao=identificacao,
+                    execution_company_id=exec_id,
+                    materiais_compra=materiais_ordem_compra,
+                    assignee_id=user_id,
+                    creator_id=user_id
+                )
+
+                if ordem_compra_id:
+                    print(f"✅ Ordem de Compra criada com sucesso! ID: {ordem_compra_id}")
+                    print(f"📌 A ordem de compra contém {len(materiais_ordem_compra)} materiais.")
+                    print("ℹ️ Os valores de compra devem ser preenchidos manualmente no formulário.")
+                else:
+                    print("❌ Erro ao criar Ordem de Compra.")
+            else:
+                print("⚠️ Não foi possível criar ordem de compra: ID da empresa não encontrado.")
+
+        elif info['necessita_compra'] and materiais_comprar == 0:
+            print("\n⚠️ Flag 'Necessita Compra' está ativa, mas nenhum material está marcado como 'Item a Comprar'.")
+            print("ℹ️ Marque os materiais com status 'Item a Comprar' para gerar a ordem de compra.")
+
+        else:
+            print("\n✅ Todos os materiais foram separados. Nenhuma compra necessária.")
 
         print("\n✅ Processamento de separação de materiais concluído.")
 
@@ -440,7 +502,8 @@ def criar_app_fastapi():
         background_tasks.add_task(handle_webhook_logic, body)
 
         template_name = body.get('template_name', 'Desconhecido')
-        print(f"✅ Webhook '{template_name}' (ID: {current_id[:8]}) aceito. Agendado para processamento.")
+        print(
+            f"[{get_timestamp()}] ✅ Webhook '{template_name}' (ID: {current_id[:8]}) aceito. Agendado para processamento.")
         return JSONResponse(status_code=202, content={
             "status": "aceito",
             "detail": "Webhook recebido.",
