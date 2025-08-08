@@ -114,35 +114,23 @@ class ChecklistCreator:
         sub_checklists = []
 
         for material in materiais:
+            # Pula materiais sem nome
+            if not material.get('material'):
+                continue
+
             sub_checklist_questions = []
 
             # Material
-            if material.get('material'):
-                sub_checklist_questions.append({
-                    "question_id": self.sub_question_mapping_separacao['material'],
-                    "value": str(material['material'])
-                })
-
-            # Quantidade
-            if material.get('quantidade'):
-                sub_checklist_questions.append({
-                    "question_id": self.sub_question_mapping_separacao['quantidade'],
-                    "value": str(material['quantidade'])
-                })
-
-            # Status do Produto - por padrão "Item em Estoque"
             sub_checklist_questions.append({
-                "question_id": self.sub_question_mapping_separacao['status_produto'],
-                "options": [
-                    {"text": "Item em Estoque", "value": "true"},
-                    {"text": "Item a Comprar", "value": "false"}
-                ]
+                "question_id": self.sub_question_mapping_separacao['material'],
+                "value": str(material['material'])
             })
 
-            # Separado - por padrão false
+            # Quantidade - usa '1' como padrão se não houver
+            quantidade = material.get('quantidade') or '1'
             sub_checklist_questions.append({
-                "question_id": self.sub_question_mapping_separacao['separado'],
-                "value": "false"
+                "question_id": self.sub_question_mapping_separacao['quantidade'],
+                "value": str(quantidade)
             })
 
             if sub_checklist_questions:
@@ -150,6 +138,11 @@ class ChecklistCreator:
                     "id": self.question_id_materiais_separacao,
                     "sub_checklist_questions": sub_checklist_questions
                 })
+
+        # Se não houver subchecklists válidos, retorna
+        if not sub_checklists:
+            print("⚠️ Nenhum material válido para adicionar.")
+            return
 
         # Envia em lotes
         batch_size = 50
@@ -166,6 +159,10 @@ class ChecklistCreator:
             total_batches = math.ceil(len(sub_checklists) / batch_size)
 
             print(f"📦 Enviando lote {batch_num}/{total_batches} com {len(batch)} materiais...")
+
+            # DEBUG: Imprimir o payload para ver o que está sendo enviado
+            print(f"DEBUG - Payload sendo enviado:")
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
 
             try:
                 response = requests.post(
@@ -185,7 +182,7 @@ class ChecklistCreator:
             except requests.exceptions.RequestException as e:
                 print(f"❌ Erro de conexão ao enviar lote {batch_num}: {e}")
 
-        print(f"\n📊 Total de materiais enviados: {total_enviados}/{len(materiais)}")
+        print(f"\n📊 Total de materiais enviados: {total_enviados}/{len(sub_checklists)}")
 
     def criar_checklist_completo(self, identificacao: Dict[str, str], execution_company_id: str,
                                  itens: List[Dict] = None,

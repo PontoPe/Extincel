@@ -231,11 +231,7 @@ def handle_webhook_logic(payload: dict):
     print(f"Formulário ID: {form_id} | Empresa ID: {exec_id}")
 
     # Webhooks de Materiais
-    if template_name == "Abertura de Projetos":
-        print("📦 Tipo detectado: Sistema de Materiais")
-        return handle_webhook_abertura_logic(payload)
-
-    elif template_name == "Separação de Materiais":
+    if template_name in ["Abertura de Projetos", "Separação de Materiais"]:
         print("📦 Tipo detectado: Sistema de Materiais")
         return handle_webhook_materiais_logic(payload)
 
@@ -266,111 +262,6 @@ def handle_webhook_logic(payload: dict):
         return
 
 
-def handle_webhook_abertura_logic(payload: dict):
-    """Lógica de processamento para webhooks de materiais."""
-    info = extrair_informacoes_materiais(payload)
-    form_id = payload.get('_id', {}).get('$oid')
-    exec_id = info.get('execution_company_id')
-    user_id = info.get('user_id')
-    template_name = info.get('template_name')
-
-    print(f"\n--- INICIANDO PROCESSAMENTO DE {template_name.upper()} EM BACKGROUND ---")
-    print(f"Formulário ID: {form_id} | Empresa ID: {exec_id}")
-
-    if template_name == "Abertura de Projetos":
-        # Lógica para Abertura de Projetos
-        print(f"Flag 'Gerar Materiais': {info['gerar_materiais']}")
-
-        total_materiais = (len(info['materiais_servico_1']) +
-                           len(info['materiais_servico_2']) +
-                           len(info['materiais_servico_3']))
-
-        print(f"Total de materiais encontrados: {total_materiais}")
-
-        if not info['gerar_materiais'] and total_materiais > 0:
-            print("\n▶️ Processando materiais de Abertura de Projetos...")
-            print(f"Cliente: {info['nome_fantasia']} ({info['cnpj']})")
-
-            # Consolida todos os materiais em uma lista única
-            todos_materiais = []
-
-            for servico_num in [1, 2, 3]:
-                materiais = info[f'materiais_servico_{servico_num}']
-                if materiais:
-                    print(f"\nMateriais do Serviço {servico_num}:")
-                    for mat in materiais:
-                        print(
-                            f"  - {mat.get('material')} | Qtd: {mat.get('quantidade')} | Valor: {mat.get('valor_venda')}")
-                        # Adiciona à lista consolidada com formato para separação
-                        todos_materiais.append({
-                            "material": mat.get('material'),
-                            "quantidade": mat.get('quantidade')
-                        })
-
-            # Cria o checklist de Separação de Materiais
-            if todos_materiais and exec_id:
-                print(f"\n▶️ Criando checklist de Separação de Materiais com {len(todos_materiais)} itens...")
-
-                # Prepara dados de identificação do cliente
-                identificacao = {
-                    "nome_fantasia": info.get('nome_fantasia'),
-                    "cnpj": info.get('cnpj'),
-                    "razao_social": info.get('razao_social'),
-                    "contato_cliente": info.get('contato_cliente'),
-                    "email_cliente": info.get('email_cliente'),
-                    "telefone": info.get('telefone'),
-                    "cargo_funcao": info.get('cargo_funcao')
-                }
-
-                creator = ChecklistCreator()
-                checklist_id = creator.criar_checklist_separacao_materiais(
-                    identificacao=identificacao,
-                    execution_company_id=exec_id,
-                    materiais=todos_materiais,
-                    assignee_id=user_id,
-                    creator_id=user_id
-                )
-
-                if checklist_id:
-                    print(f"✅ Checklist de Separação de Materiais criado com sucesso! ID: {checklist_id}")
-                else:
-                    print("❌ Erro ao criar checklist de Separação de Materiais.")
-            else:
-                print("⚠️ Não foi possível criar checklist: sem materiais ou sem ID da empresa.")
-
-            print("\n✅ Processamento de materiais concluído.")
-        else:
-            if not info['gerar_materiais']:
-                print("\n⏹️ Flag 'Gerar Materiais' não está ativa.")
-            else:
-                print("\n⏹️ Nenhum material encontrado para processar.")
-
-    elif template_name == "Separação de Materiais":
-        # Lógica para Separação de Materiais
-        print(f"Flag 'Necessita Compra': {info['necessita_compra']}")
-        print(f"Responsável: {info['responsavel_separacao']}")
-
-        total_materiais = len(info['materiais_separacao'])
-        materiais_separados = sum(1 for mat in info['materiais_separacao'] if mat['separado'])
-        materiais_comprar = sum(1 for mat in info['materiais_separacao'] if mat['status_produto'] == 'Item a Comprar')
-
-        print(f"\nTotal de materiais: {total_materiais}")
-        print(f"Materiais separados: {materiais_separados}")
-        print(f"Materiais a comprar: {materiais_comprar}")
-
-        if info['materiais_separacao']:
-            print("\n▶️ Lista de materiais:")
-            for mat in info['materiais_separacao']:
-                status = "✅" if mat['separado'] else "❌"
-                print(f"  {status} {mat['material']} | Qtd: {mat['quantidade']} | Status: {mat['status_produto']}")
-
-        if info['necessita_compra'] and materiais_comprar > 0:
-            print("\n▶️ Gerando lista de compras...")
-            # TODO: Implementar lógica para gerar pedido de compra
-            print("✅ Lista de compras gerada.")
-
-        print("\n✅ Processamento de separação de materiais concluído.")
-
 def handle_webhook_materiais_logic(payload: dict):
     """Lógica de processamento para webhooks de materiais."""
     info = extrair_informacoes_materiais(payload)
@@ -385,14 +276,29 @@ def handle_webhook_materiais_logic(payload: dict):
     if template_name == "Abertura de Projetos":
         # Lógica para Abertura de Projetos
         print(f"Flag 'Gerar Materiais': {info['gerar_materiais']}")
+        if info.get("materiais_servico_1") is None:
+            print("⚠️ Nenhum material encontrado para o Serviço 1.")
+        else:
+            print(f"Materiais do Serviço 1: {len(info['materiais_servico_1'])} encontrados.")
+            materiais_servico_1 = info['materiais_servico_1']
+        if info.get("materiais_servico_2") is None:
+            print("⚠️ Nenhum material encontrado para o Serviço 2.")
+        else:
+            print(f"Materiais do Serviço 2: {len(info['materiais_servico_2'])} encontrados.")
+            materiais_servico_2 = info['materiais_servico_2']
+        if info.get("materiais_servico_3") is None:
+            print("⚠️ Nenhum material encontrado para o Serviço 3.")
+        else:
+            print(f"Materiais do Serviço 3: {len(info['materiais_servico_3'])} encontrados.")
+            materiais_servico_3 = info['materiais_servico_3']
 
-        total_materiais = (len(info['materiais_servico_1']) +
-                           len(info['materiais_servico_2']) +
-                           len(info['materiais_servico_3']))
+        total_materiais = (len(materiais_servico_1) +
+                           len(materiais_servico_2) +
+                           len(materiais_servico_3))
 
         print(f"Total de materiais encontrados: {total_materiais}")
 
-        if info['gerar_materiais'] and total_materiais > 0:
+        if not info['gerar_materiais'] and total_materiais > 0:
             print("\n▶️ Processando materiais de Abertura de Projetos...")
             print(f"Cliente: {info['nome_fantasia']} ({info['cnpj']})")
 
@@ -401,7 +307,7 @@ def handle_webhook_materiais_logic(payload: dict):
 
             for servico_num in [1, 2, 3]:
                 materiais = info[f'materiais_servico_{servico_num}']
-                if materiais:
+                if materiais is not None and len(materiais) > 0:
                     print(f"\nMateriais do Serviço {servico_num}:")
                     for mat in materiais:
                         print(
