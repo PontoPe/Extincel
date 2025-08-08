@@ -412,10 +412,10 @@ def criar_app_fastapi():
             body = await request.json()
 
             # DEBUG: Salvar o dump (remover em produção)
-            # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            # template_name = body.get('template_name', 'unknown').replace(' ', '_')
-            # with open(f'webhook_{template_name}_{timestamp}.json', 'w', encoding='utf-8') as f:
-            #     json.dump(body, f, indent=2, ensure_ascii=False)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            template_name = body.get('template_name', 'unknown').replace(' ', '_')
+            with open(f'webhook_{template_name}_{timestamp}.json', 'w', encoding='utf-8') as f:
+                json.dump(body, f, indent=2, ensure_ascii=False)
 
         except json.JSONDecodeError:
             return JSONResponse(status_code=400, content={"status": "erro", "motivo": "Payload inválido."})
