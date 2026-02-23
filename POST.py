@@ -8,7 +8,10 @@ import math
 class ChecklistCreator:
     def __init__(self):
         self.base_url = "https://app.way-v.com/api/integration"
-        self.token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJjb21wYW55X2lkIjoiNjg1ZDdjMjJlYmM1MzJiMzhjYzYwMmNlIiwiY3VycmVudF90aW1lIjoxNzUzODExOTEwMTI2LCJleHAiOjIwNjkzNDQ3MTB9.aTCOVKgjvNRVBPcwIFiWzTTJlu28jfzUuvI26zYfZkA'
+        self.token = os.getenv("WAYV_TOKEN_API")
+        if not token:
+            raise ValueError("O token TOKEN_API não foi encontrado nas variáveis de ambiente.") 
+        
         self.headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
 
         self.template_id_materiais = "6877fc37e833bf57706a2edf"
