@@ -9,7 +9,9 @@ import unicodedata
 class FormulariosBuscador:
     def __init__(self, execution_company_id: str, arquivo_cache='cache_formularios.json'):
         self.url = "https://app.way-v.com/api/integration/checklists"
-        self.token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJjb21wYW55X2lkIjoiNjg1ZDdjMjJlYmM1MzJiMzhjYzYwMmNlIiwiY3VycmVudF90aW1lIjoxNzUzODExOTEwMTI2LCJleHAiOjIwNjkzNDQ3MTB9.aTCOVKgjvNRVBPcwIFiWzTTJlu28jfzUuvI26zYfZkA'
+        self.token = os.getenv("WAYV_TOKEN_API")
+        if not token:
+            raise ValueError("O token TOKEN_API não foi encontrado nas variáveis de ambiente.")
         self.params = {
             "execution_company_id": execution_company_id,
             "template_id": '68672e90de1e5a11771d2224'
