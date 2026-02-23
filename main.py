@@ -9,7 +9,7 @@ def iniciar_servidor():
     # ------------- Configuração do Ngrok ------------
     NGROK_DOMAIN = "surely-excited-oyster.ngrok-free.app"
     # Recomenda-se usar variáveis de ambiente para o token
-    NGROK_AUTH_TOKEN = os.environ.get("NGROK_AUTH_TOKEN", "2lcZIyet7S75iAIYeSHfnxl3Lxx_5RPfmweQ8XFUAuDRHi2ef")
+    NGROK_AUTH_TOKEN = os.environ.get("NGROK_AUTH_TOKEN")
 
     if NGROK_AUTH_TOKEN:
         conf.get_default().auth_token = NGROK_AUTH_TOKEN
